@@ -3,6 +3,8 @@ from tools.filesystem import search_files, read_file, list_directory
 from tools.file_sender import send_file_to_user
 from tools.email_tool import read_emails, send_email, search_emails
 from tools.scheduler_tool import schedule_reminder, list_reminders, cancel_reminder
+from tools.system_tool import get_system_info, get_top_processes
+from tools.shell_tool import run_shell_command
 
 def get_tools() -> list:
     return [
@@ -17,4 +19,7 @@ def get_tools() -> list:
         schedule_reminder,
         list_reminders,
         cancel_reminder,
+        get_system_info,
+        get_top_processes,
+        run_shell_command,
     ]
