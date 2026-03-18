@@ -12,15 +12,22 @@ def get_weather(city: str) -> str:
         Current weather including temperature, conditions, humidity, and wind.
     """
     try:
-        url = f"https://wttr.in/{urllib.request.quote(city)}?format=j1"
+        encoded = urllib.request.quote(city)
+        url = f"https://wttr.in/{encoded}?format=j1"
         req = urllib.request.Request(url, headers={"User-Agent": "PersonalAgent/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
+            raw = resp.read().decode()
+
+        data = json.loads(raw)
+
+        if "current_condition" not in data:
+            # Fallback: use simple text format
+            return _get_weather_simple(city)
 
         current = data["current_condition"][0]
-        area = data["nearest_area"][0]
-        area_name = area["areaName"][0]["value"]
-        country = area["country"][0]["value"]
+        area = data.get("nearest_area", [{}])[0]
+        area_name = area.get("areaName", [{"value": city}])[0]["value"]
+        country = area.get("country", [{"value": ""}])[0]["value"]
 
         return (
             f"🌤️ Weather in {area_name}, {country}:\n\n"
@@ -33,4 +40,15 @@ def get_weather(city: str) -> str:
         )
     except Exception as e:
         logger.error(f"Weather error for {city}: {e}")
+        return _get_weather_simple(city)
+
+def _get_weather_simple(city: str) -> str:
+    """Fallback: use wttr.in plain text format."""
+    try:
+        encoded = urllib.request.quote(city)
+        url = f"https://wttr.in/{encoded}?format=3"
+        req = urllib.request.Request(url, headers={"User-Agent": "PersonalAgent/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return f"🌤️ {resp.read().decode().strip()}"
+    except Exception as e:
         return f"Could not get weather for '{city}': {e}"
