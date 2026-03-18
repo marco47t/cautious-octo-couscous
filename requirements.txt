@@ -5,3 +5,4 @@ python-dotenv>=1.0.0
 aiofiles>=23.0.0
 apscheduler>=3.10.4
 SQLAlchemy>=2.0.0
+chromadb>=0.6.0

@@ -1,25 +1,29 @@
 import asyncio
 import threading
-from agent.memory import get_or_create_session
+
+from agent.memory import get_or_create_session, increment_turn
+from memory.manager import get_relevant_context, save_exchange
 from tools.file_sender import set_current_chat_id, get_pending_files, clear_pending_files
 from utils.logger import logger
 
-# ── Streaming ──────────────────────────────────────────────────────────────
 
 async def process_message_stream(user_id: int, message: str, chat_id: int):
-    """
-    Async generator that yields accumulated text as Gemini streams it.
-    Bridges the synchronous google-genai SDK to async Telegram handler.
-    """
     set_current_chat_id(chat_id)
     session = get_or_create_session(user_id)
+
+    # Retrieve semantically relevant past exchanges
+    context = await asyncio.to_thread(get_relevant_context, user_id, message)
+    enriched = f"{context}\n\n[Current message]:\n{message}" if context else message
+
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
+    full_chunks = []
 
     def _worker():
         try:
-            for chunk in session.send_message_stream(message):
+            for chunk in session.send_message_stream(enriched):
                 if chunk.text:
+                    full_chunks.append(chunk.text)
                     loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk.text))
             loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
         except Exception as e:
@@ -43,7 +47,11 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
 
     thread.join(timeout=5)
 
-# ── File queue helper ───────────────────────────────────────────────────────
+    # Persist exchange to vector DB + increment session turn counter
+    if accumulated:
+        increment_turn(user_id)
+        await asyncio.to_thread(save_exchange, user_id, message, accumulated)
+
 
 def pop_pending_files(chat_id: int) -> list[str]:
     files = get_pending_files(chat_id)

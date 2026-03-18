@@ -30,3 +30,7 @@ desktop.ini
 
 # Jupyter (if added later)
 .ipynb_checkpoints/
+
+# Databases
+memory_db/
+scheduler.db
