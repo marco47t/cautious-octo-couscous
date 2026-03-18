@@ -1,4 +1,5 @@
 import os
+import html
 import tempfile
 from pathlib import Path
 from telegram import Update
@@ -7,11 +8,10 @@ from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from agent.core import process_message_stream, pop_pending_files
 from bot.handlers import _safe_edit
+from utils.md_to_html import md_to_html
 from utils.logger import logger
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 async def _download(bot, file_id: str, suffix: str) -> str:
     tg_file = await bot.get_file(file_id)
@@ -19,8 +19,8 @@ async def _download(bot, file_id: str, suffix: str) -> str:
     await tg_file.download_to_drive(tmp.name)
     return tmp.name
 
-async def _agent_reply(update, context, user_id, chat_id, message: str, status: str = "⏳ _Thinking..._"):
-    placeholder = await update.message.reply_text(status, parse_mode="Markdown")
+async def _agent_reply(update, context, user_id, chat_id, message: str, status: str = "⏳ <i>Thinking...</i>"):
+    placeholder = await update.message.reply_text(status, parse_mode="HTML")
     final_text = ""
     async for partial in process_message_stream(user_id, message, chat_id):
         final_text = partial
@@ -32,11 +32,8 @@ async def _agent_reply(update, context, user_id, chat_id, message: str, status: 
         except Exception as e:
             await update.message.reply_text(f"❌ Could not send {p.name}: {e}")
 
-# ── Photo handler ────────────────────────────────────────────────────────────
-
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
     question = update.message.caption or "Describe this image in detail."
     await context.bot.send_chat_action(chat_id, "typing")
     path = None
@@ -49,15 +46,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             contents=[uploaded, question]
         )
         text = response.text or "Could not analyze image."
-        await update.message.reply_text(text[:4096])
+        await update.message.reply_text(md_to_html(text)[:4096], parse_mode="HTML")
     except Exception as e:
         logger.error(f"Photo handler error: {e}")
         await update.message.reply_text(f"❌ Could not process image: {e}")
     finally:
         if path and os.path.exists(path):
             os.unlink(path)
-
-# ── Document handler ─────────────────────────────────────────────────────────
 
 TEXT_EXTENSIONS = {".py", ".js", ".ts", ".md", ".csv", ".json", ".yaml", ".yml", ".txt", ".html", ".css", ".sh"}
 
@@ -74,7 +69,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if suffix in TEXT_EXTENSIONS or (doc.mime_type or "").startswith("text/"):
             content = Path(path).read_text(encoding="utf-8", errors="replace")[:8000]
             message = f"{caption}\n\nFile: `{doc.file_name}`\n\n```\n{content}\n```"
-            await _agent_reply(update, context, user_id, chat_id, message, "⏳ _Reading file..._")
+            await _agent_reply(update, context, user_id, chat_id, message, "⏳ <i>Reading file...</i>")
         else:
             mime = doc.mime_type or "application/octet-stream"
             uploaded = _client.files.upload(file=path, config={"mime_type": mime})
@@ -82,15 +77,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 model=GEMINI_MODEL,
                 contents=[uploaded, caption]
             )
-            await update.message.reply_text((response.text or "Could not process.")[:4096])
+            await update.message.reply_text(md_to_html(response.text or "Could not process.")[:4096], parse_mode="HTML")
     except Exception as e:
         logger.error(f"Document handler error: {e}")
         await update.message.reply_text(f"❌ Could not process document: {e}")
     finally:
         if path and os.path.exists(path):
             os.unlink(path)
-
-# ── Voice handler ────────────────────────────────────────────────────────────
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -109,7 +102,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not transcription:
             await update.message.reply_text("❌ Could not transcribe audio.")
             return
-        await update.message.reply_text(f"🎤 _{transcription}_", parse_mode="Markdown")
+        await update.message.reply_text(f"🎤 <i>{html.escape(transcription)}</i>", parse_mode="HTML")
         await _agent_reply(update, context, user_id, chat_id, transcription)
     except Exception as e:
         logger.error(f"Voice handler error: {e}")
