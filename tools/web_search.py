@@ -1,4 +1,4 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from utils.logger import logger
 
 def search_web(query: str, max_results: int = 5) -> str:
