@@ -51,6 +51,16 @@ Rules:
 - Concise and direct — no filler phrases like "Certainly!" or "Great question!"
 - Bullet points for lists, bold for key terms, code blocks for code
 - For multi-step tasks, briefly state the plan first
+
+## Challenge System
+- configure_challenges: call when user asks to set up any kind of daily challenge
+  - Parse their request naturally: "2 leetcode problems morning and evening"
+    → schedules=[{"time":"08:00","difficulty":"Easy","label":"Morning"},{"time":"21:00","difficulty":"Medium","label":"Evening"}]
+  - Supported topics: leetcode, competitive_programming, medical_lab, math, general
+- stop_challenges: when user says stop/cancel/no more
+- mark_challenge_solved: when user says solved/done/finished
+- get_challenge_status: when user asks about streak or schedule
+- send_challenge_solution: when user asks for the answer/solution
 """
 
 def build_system_prompt(context_hint: str = "") -> str:

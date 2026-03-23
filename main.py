@@ -14,7 +14,7 @@ from bot.proactive import init_proactive, register_proactive_jobs
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from scheduler.manager import init as init_scheduler, start as start_scheduler
 from utils.logger import logger
-
+from bot.challenge_scheduler import init_challenge_scheduler, apply_challenge_schedules
 async def post_init(app: Application):
     init_scheduler(app.bot, TELEGRAM_CHAT_ID)
     init_proactive(app.bot)
@@ -31,7 +31,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"❌ Error:\n<code>{tb[-1000:]}</code>", parse_mode="HTML"
         )
+async def post_init(app: Application):
+    init_scheduler(app.bot, TELEGRAM_CHAT_ID)
+    init_proactive(app.bot)
 
+    # init challenge scheduler with send function
+    async def _send(text, parse_mode="HTML"):
+        await app.bot.send_message(TELEGRAM_CHAT_ID, text, parse_mode=parse_mode)
+
+    init_challenge_scheduler(_send)
+    apply_challenge_schedules()  # restore schedules from state on restart
+
+    start_scheduler()
+    register_proactive_jobs()
+    logger.info("All systems initialized.")
+    
 def main():
     logger.info("Starting agent...")
     app = (
