@@ -1,30 +1,36 @@
+import re
 import asyncio
 from pathlib import Path
-from telegram import Update, Message
+from telegram import Update, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
 from agent.core import process_message_stream, pop_pending_files
 from agent.memory import clear_session
+from bot.confirmation import execute_action, cancel_action, cleanup_pending
 from tools.system_tool import get_system_info
 from utils.md_to_html import md_to_html
 from utils.logger import logger
 
+CONFIRM_PATTERN = re.compile(r"CONFIRM_ID:([a-f0-9]+)")
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>🤖 Personal AI Agent Online</b>\n\n"
-        "I can:\n🔍 Search the web\n📁 Find &amp; manage server files\n"
-        "📧 Read &amp; send emails\n⏰ Schedule reminders\n"
-        "🖼️ Analyze images &amp; documents\n🎤 Transcribe voice messages\n"
-        "🖥️ Monitor server stats\n💻 Run whitelisted shell commands\n\n"
-        "/reset — clear conversation memory\n"
+        "I can:\n🔍 Search the web\n📁 Manage server files\n"
+        "📧 Read &amp; send emails (with confirmation)\n"
+        "⏰ Schedule reminders\n🖼️ Analyze images &amp; documents\n"
+        "🎤 Transcribe voice messages\n🖥️ Monitor server stats\n"
+        "💻 Run shell commands (with confirmation)\n\n"
+        "/reset — clear conversation\n"
         "/reminders — list pending reminders\n"
-        "/status — server resource usage",
+        "/status — server health",
         parse_mode="HTML"
     )
 
 async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_session(update.effective_user.id)
+    cleanup_pending()
     await update.message.reply_text("🔄 Memory cleared. Fresh start!")
 
 async def handle_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -41,16 +47,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"[{user_id}] {text[:80]}")
 
     await context.bot.send_chat_action(chat_id, "typing")
-    placeholder: Message = await update.message.reply_text("⏳ <i>Thinking...</i>", parse_mode="HTML")
+    placeholder: Message = await update.message.reply_text(
+        "⏳ <i>Thinking...</i>", parse_mode="HTML"
+    )
+
     final_text = ""
     try:
         async for partial in process_message_stream(user_id, text, chat_id):
             final_text = partial
-        await _safe_edit(placeholder, final_text or "✅ Done.")
     except Exception as e:
         logger.error(f"Handler error: {e}")
         await _safe_edit(placeholder, f"❌ Error: {e}")
+        return
 
+    # Check if response contains a confirmation request
+    match = CONFIRM_PATTERN.search(final_text)
+    if match:
+        action_id = match.group(1)
+        display_text = CONFIRM_PATTERN.sub("", final_text).strip()
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Yes, proceed", callback_data=f"confirm:{action_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}"),
+        ]])
+        try:
+            await placeholder.edit_text(
+                md_to_html(display_text)[:4096],
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        except BadRequest:
+            await placeholder.edit_text(display_text[:4096], reply_markup=keyboard)
+    else:
+        await _safe_edit(placeholder, final_text or "✅ Done.")
+
+    # Send queued files
     for file_path in pop_pending_files(chat_id):
         path = Path(file_path)
         try:
@@ -62,13 +92,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text(f"❌ Could not send {path.name}: {e}")
 
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Yes/No button presses for confirmations."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("confirm:"):
+        action_id = data.split(":", 1)[1]
+        result = execute_action(action_id)
+        await query.edit_message_text(md_to_html(result)[:4096], parse_mode="HTML")
+
+    elif data.startswith("cancel:"):
+        action_id = data.split(":", 1)[1]
+        result = cancel_action(action_id)
+        await query.edit_message_text(md_to_html(result)[:4096], parse_mode="HTML")
+
 async def _safe_edit(message: Message, text: str):
     try:
         await message.edit_text(md_to_html(text)[:4096], parse_mode="HTML")
     except BadRequest as e:
         if "can't parse" in str(e).lower():
-            # Last resort: strip all tags and send plain
-            import html
             try:
                 await message.edit_text(text[:4096], parse_mode=None)
             except BadRequest as e2:

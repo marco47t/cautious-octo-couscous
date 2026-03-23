@@ -4,6 +4,7 @@ from email.mime.multipart import MIMEMultipart
 from email.header import decode_header as _dh
 from config import EMAIL_ADDRESS, EMAIL_APP_PASSWORD
 from utils.logger import logger
+from utils.tool_logger import logged_tool
 
 IMAP = "imap.gmail.com"
 SMTP, SMTP_PORT = "smtp.gmail.com", 587
@@ -14,6 +15,21 @@ def _decode(val):
     raw, enc = _dh(val)[0]
     return raw.decode(enc or "utf-8", errors="replace") if isinstance(raw, bytes) else raw
 
+def _send_email_direct(to: str, subject: str, body: str) -> str:
+    """Internal: execute email send without confirmation."""
+    try:
+        msg = MIMEMultipart()
+        msg["From"], msg["To"], msg["Subject"] = EMAIL_ADDRESS, to, subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP(SMTP, SMTP_PORT) as s:
+            s.starttls()
+            s.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
+            s.send_message(msg)
+        return f"✅ Email sent to {to}"
+    except Exception as e:
+        return f"Failed to send email: {e}"
+
+@logged_tool
 def read_emails(count: int = 5) -> str:
     """Read the latest emails from the inbox.
 
@@ -39,8 +55,9 @@ def read_emails(count: int = 5) -> str:
     except Exception as e:
         return f"Failed to read emails: {e}"
 
+@logged_tool
 def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email on behalf of the user.
+    """Send an email — requires user confirmation before sending.
 
     Args:
         to: Recipient email address.
@@ -48,20 +65,23 @@ def send_email(to: str, subject: str, body: str) -> str:
         body: Plain text email body.
 
     Returns:
-        Confirmation or error message.
+        Confirmation request string with action ID.
     """
-    try:
-        msg = MIMEMultipart()
-        msg["From"], msg["To"], msg["Subject"] = EMAIL_ADDRESS, to, subject
-        msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP(SMTP, SMTP_PORT) as s:
-            s.starttls()
-            s.login(EMAIL_ADDRESS, EMAIL_APP_PASSWORD)
-            s.send_message(msg)
-        return f"✅ Email sent to {to}"
-    except Exception as e:
-        return f"Failed to send email: {e}"
+    from bot.confirmation import register_action
+    action_id = register_action(
+        func=_send_email_direct,
+        args={"to": to, "subject": subject, "body": body},
+        description=f"Send email to {to} — Subject: {subject}"
+    )
+    return (
+        f"📧 Ready to send email:\n"
+        f"**To:** {to}\n"
+        f"**Subject:** {subject}\n"
+        f"**Preview:** {body[:150]}{'...' if len(body) > 150 else ''}\n\n"
+        f"CONFIRM_ID:{action_id}"
+    )
 
+@logged_tool
 def search_emails(keyword: str, count: int = 10) -> str:
     """Search inbox emails by keyword in the subject.
 

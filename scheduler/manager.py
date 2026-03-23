@@ -16,7 +16,7 @@ def init(bot: Bot, chat_id: int):
 
 async def _fire_reminder(message: str):
     if _bot and _chat_id:
-        await _bot.send_message(_chat_id, f"⏰ *Reminder:* {message}", parse_mode="Markdown")
+        await _bot.send_message(_chat_id, f"⏰ <b>Reminder:</b> {message}", parse_mode="HTML")
 
 def start():
     scheduler.start()

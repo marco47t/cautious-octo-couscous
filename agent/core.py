@@ -6,20 +6,15 @@ from memory.fact_extractor import extract_facts
 from tools.file_sender import get_pending_files, clear_pending_files
 from utils.logger import logger
 
-
 async def process_message_stream(user_id: int, message: str, chat_id: int):
-    # Set shared context so memory tools can access user_id
     set_request_context(user_id, chat_id)
-    session = get_or_create_session(user_id)
+    session = get_or_create_session(user_id, message)
 
     logger.debug(f"[user:{user_id}] ── NEW MESSAGE ──────────────────────────")
     logger.debug(f"[user:{user_id}] INPUT: {message}")
-    # No pipeline memory injection — Gemini calls retrieve_memory/retrieve_fact when needed
 
     try:
         response = await asyncio.to_thread(session.send_message, message)
-
-        # Log tool calls from response
         try:
             for candidate in (response.candidates or []):
                 for part in (candidate.content.parts or []):
@@ -36,7 +31,6 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
             text = response.text
         except Exception:
             text = None
-
         text = text or "✅ Done."
 
     except Exception as e:
@@ -49,12 +43,10 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
 
     yield text
 
-    # Save episode + extract facts in background after responding
-    if text != "✅ Done.":
+    if text not in ("✅ Done.",):
         increment_turn(user_id)
         await asyncio.to_thread(save_episode, user_id, message, text)
         await asyncio.to_thread(extract_facts, str(user_id), message, text)
-
 
 def pop_pending_files(chat_id: int) -> list[str]:
     files = get_pending_files(chat_id)
