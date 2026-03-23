@@ -1,31 +1,25 @@
 import asyncio
-import threading
-
 from agent.memory import get_or_create_session, increment_turn
-from memory.manager import get_relevant_context, save_exchange
-from tools.file_sender import set_current_chat_id, get_pending_files, clear_pending_files
+from agent.context import set_request_context
+from memory.manager import save_episode
+from memory.fact_extractor import extract_facts
+from tools.file_sender import get_pending_files, clear_pending_files
 from utils.logger import logger
 
 
 async def process_message_stream(user_id: int, message: str, chat_id: int):
-    set_current_chat_id(chat_id)
+    # Set shared context so memory tools can access user_id
+    set_request_context(user_id, chat_id)
     session = get_or_create_session(user_id)
 
     logger.debug(f"[user:{user_id}] ── NEW MESSAGE ──────────────────────────")
     logger.debug(f"[user:{user_id}] INPUT: {message}")
-
-    context = await asyncio.to_thread(get_relevant_context, user_id, message)
-    if context:
-        logger.debug(f"[user:{user_id}] MEMORY INJECTED:\n{context[:800]}")
-    else:
-        logger.debug(f"[user:{user_id}] MEMORY: no relevant context found")
-
-    enriched = f"{context}\n\n[Current message]:\n{message}" if context else message
+    # No pipeline memory injection — Gemini calls retrieve_memory/retrieve_fact when needed
 
     try:
-        response = await asyncio.to_thread(session.send_message, enriched)
+        response = await asyncio.to_thread(session.send_message, message)
 
-        # Log all tool calls from response candidates
+        # Log tool calls from response
         try:
             for candidate in (response.candidates or []):
                 for part in (candidate.content.parts or []):
@@ -34,9 +28,9 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
                         logger.info(f"[user:{user_id}] TOOL CALL → {fc.name}({dict(fc.args)})")
                     if hasattr(part, "function_response") and part.function_response:
                         fr = part.function_response
-                        logger.debug(f"[user:{user_id}] TOOL RESULT ← {fr.name}: {str(fr.response)[:400]}")
-        except Exception as log_err:
-            logger.debug(f"[user:{user_id}] Could not log tool parts: {log_err}")
+                        logger.debug(f"[user:{user_id}] TOOL RESULT ← {fr.name}: {str(fr.response)[:300]}")
+        except Exception:
+            pass
 
         try:
             text = response.text
@@ -55,9 +49,11 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
 
     yield text
 
+    # Save episode + extract facts in background after responding
     if text != "✅ Done.":
         increment_turn(user_id)
-        await asyncio.to_thread(save_exchange, user_id, message, text)
+        await asyncio.to_thread(save_episode, user_id, message, text)
+        await asyncio.to_thread(extract_facts, str(user_id), message, text)
 
 
 def pop_pending_files(chat_id: int) -> list[str]:
