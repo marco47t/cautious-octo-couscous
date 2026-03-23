@@ -5,9 +5,10 @@ import re
 import sys
 from pathlib import Path
 from google import genai
-from config import GEMINI_API_KEY, GEMINI_HELPER_MODEL
+from config import GEMINI_API_KEY
 from utils.logger import logger
 from utils.tool_logger import logged_tool
+GEMINI_HELPER_MODEL = "gemini-3.1-flash-lite-preview"
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
 DYNAMIC_DIR = Path("tools/dynamic")
@@ -74,11 +75,24 @@ def _validate_code(code: str, function_name: str) -> tuple[bool, str]:
         return False, f"Function name mismatch: expected {function_name}, got {functions[0].name}"
 
     # Banned patterns — no file writes, no exec, no subprocess outside allowed
-    banned = ["exec(", "eval(", "subprocess", "os.system", "open(", "__import__",
-              "compile(", "globals(", "locals(", "shutil", "socket.bind"]
-    for b in banned:
-        if b in code:
-            return False, f"Banned pattern detected: {b}"
+    import re as _re
+
+    banned_exact = [
+        (r"\bexec\s*\(", "exec()"),
+        (r"\beval\s*\(", "eval()"),
+        (r"\bsubprocess\b", "subprocess"),
+        (r"\bos\.system\s*\(", "os.system()"),
+        (r"(?<!url)(?<!url\.)open\s*\(", "open()"),   # bans open() but NOT urlopen()
+        (r"\b__import__\s*\(", "__import__()"),
+        (r"\bcompile\s*\(", "compile()"),
+        (r"\bglobals\s*\(", "globals()"),
+        (r"\blocals\s*\(", "locals()"),
+        (r"\bshutil\b", "shutil"),
+        (r"socket\.bind\s*\(", "socket.bind()"),
+    ]
+    for pattern, label in banned_exact:
+        if _re.search(pattern, code):
+            return False, f"Banned pattern detected: {label}"
 
     return True, "OK"
 
