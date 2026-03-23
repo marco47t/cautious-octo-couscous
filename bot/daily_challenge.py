@@ -89,7 +89,7 @@ def _build_prompt(topic: str, difficulty: str = "Medium") -> str:
 async def generate_challenge(topic: str, difficulty: str = "Medium", slot_label: str = "") -> str:
     try:
         prompt = _build_prompt(topic, difficulty)
-        resp = _client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        resp = _client.models.generate_content(model="gemini-3.1-flash-lite-preview", contents=prompt)
         text = resp.text.strip()
         state = load_state()
         streak = state.get("streak", 0)
@@ -113,7 +113,7 @@ async def generate_solution(send_fn):
             prompt = f"Reveal the correct answer with full explanation:\n\n{last}\n\nExplain why each option is right or wrong."
         else:
             prompt = f"Provide a clean solution with explanation:\n\n{last}\n\nInclude: approach, Python code, time/space complexity."
-        resp = _client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        resp = _client.models.generate_content(model="gemini-3.1-flash-lite-preview", contents=prompt)
         await send_fn(f"💡 <b>Solution:</b>\n\n{resp.text.strip()[:3000]}", parse_mode="HTML")
     except Exception as e:
         await send_fn(f"❌ Could not generate solution: {e}", parse_mode="HTML")

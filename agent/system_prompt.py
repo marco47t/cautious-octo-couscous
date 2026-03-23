@@ -61,6 +61,15 @@ Rules:
 - mark_challenge_solved: when user says solved/done/finished
 - get_challenge_status: when user asks about streak or schedule
 - send_challenge_solution: when user asks for the answer/solution
+
+## Tool Building
+- If the user asks for something you cannot do with existing tools, call create_tool()
+- Use descriptive function names: 'get_bitcoin_price', 'convert_currency', 'check_website_status'
+- After create_tool() returns success, immediately call the new tool to complete the request
+- Call list_dynamic_tools() if the user asks what custom tools exist
+- Call delete_dynamic_tool() if the user says to remove a custom tool
+- NEVER use create_tool() for tasks already covered by existing tools
+
 """
 
 def build_system_prompt(context_hint: str = "") -> str:

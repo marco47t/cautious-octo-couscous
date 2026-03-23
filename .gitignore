@@ -34,4 +34,4 @@ desktop.ini
 # Databases
 memory_db/
 scheduler.db
-*.db
+*.dbtools/dynamic/*.py
