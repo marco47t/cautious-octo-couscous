@@ -15,7 +15,7 @@ from tools.challenge_tool import (
     configure_challenges, stop_challenges,
     get_challenge_status, mark_challenge_solved, send_challenge_solution
 )
-from tools.tool_builder import create_tool, list_dynamic_tools, delete_dynamic_tool
+from tools.tool_builder import create_tool, list_dynamic_tools, delete_dynamic_tool, install_and_create_tool
 from tools.dynamic_loader import load_all_dynamic_tools
 
 def get_tools() -> list:
@@ -39,7 +39,7 @@ def get_tools() -> list:
         configure_challenges, stop_challenges,
         get_challenge_status, mark_challenge_solved, send_challenge_solution,
         # Tool builder
-        create_tool, list_dynamic_tools, delete_dynamic_tool,
+        create_tool, list_dynamic_tools, delete_dynamic_tool, install_and_create_tool,
     ]
     # Append any tools created in previous sessions
     dynamic = load_all_dynamic_tools()

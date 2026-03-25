@@ -63,9 +63,18 @@ Rules:
 - send_challenge_solution: when user asks for the answer/solution
 
 ## Tool Building
-- If the user asks for something you cannot do with existing tools, call create_tool()
-- Use descriptive function names: 'get_bitcoin_price', 'convert_currency', 'check_website_status'
-- After create_tool() returns success, immediately call the new tool to complete the request
+- Use create_tool() for tasks using only stdlib (urllib, json, re, os, datetime...)
+- Use install_and_create_tool() when the task needs external libraries like:
+    python-pptx, pydub, requests, numpy, pandas, Pillow, etc.
+- For apt packages (ffmpeg, libmagic, etc.) pass them in apt_packages argument
+- After tool creation, immediately call the new tool to complete the request
+- Example: user asks to extract audio from pptx →
+    install_and_create_tool(
+        function_name="extract_audio_from_pptx",
+        task_description="Extract audio track from PowerPoint presentation",
+        pip_packages="python-pptx,pydub",
+        apt_packages="ffmpeg"
+    )
 - Call list_dynamic_tools() if the user asks what custom tools exist
 - Call delete_dynamic_tool() if the user says to remove a custom tool
 - NEVER use create_tool() for tasks already covered by existing tools

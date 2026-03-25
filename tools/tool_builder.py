@@ -2,6 +2,7 @@ import ast
 import importlib.util
 import inspect
 import re
+import subprocess
 import sys
 from pathlib import Path
 from google import genai
@@ -215,6 +216,93 @@ def _request_confirmation(function_name: str, task_description: str, code: str, 
 
     # Just return a neutral string — core.py handles the actual signal
     return f"Awaiting user confirmation to create {function_name}."
+
+
+def _install_dependencies(packages: list[str]) -> tuple[bool, str]:
+    """Install pip packages and apt packages. Returns (success, log)."""
+    log = []
+
+    for pkg in packages:
+        pkg = pkg.strip()
+        if not pkg:
+            continue
+
+        # Detect apt vs pip
+        if pkg.startswith("apt:"):
+            apt_pkg = pkg[4:].strip()
+            try:
+                result = subprocess.run(
+                    ["sudo", "apt-get", "install", "-y", apt_pkg],
+                    capture_output=True, text=True, timeout=60
+                )
+                if result.returncode == 0:
+                    log.append(f"✅ apt: {apt_pkg}")
+                    logger.info(f"[tool_builder] apt installed: {apt_pkg}")
+                else:
+                    log.append(f"❌ apt: {apt_pkg} — {result.stderr.strip()[-200:]}")
+                    logger.warning(f"[tool_builder] apt failed: {apt_pkg}")
+            except Exception as e:
+                log.append(f"❌ apt: {apt_pkg} — {e}")
+
+        else:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", pkg, "-q"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    log.append(f"✅ pip: {pkg}")
+                    logger.info(f"[tool_builder] pip installed: {pkg}")
+                else:
+                    log.append(f"❌ pip: {pkg} — {result.stderr.strip()[-200:]}")
+                    logger.warning(f"[tool_builder] pip failed: {pkg}")
+            except Exception as e:
+                log.append(f"❌ pip: {pkg} — {e}")
+
+    success = all(l.startswith("✅") for l in log)
+    return success, "\n".join(log)
+
+
+@logged_tool
+def install_and_create_tool(function_name: str, task_description: str,
+                             pip_packages: str = "", apt_packages: str = "") -> str:
+    """Create a tool that requires external libraries — installs them first.
+    Use this instead of create_tool when the task needs pip or apt packages.
+
+    Args:
+        function_name: Snake_case name for the new tool.
+        task_description: Clear description of what the function should do.
+        pip_packages: Comma-separated pip packages e.g. 'python-pptx,pydub,requests'.
+        apt_packages: Comma-separated apt packages e.g. 'ffmpeg,libmagic1'.
+
+    Returns:
+        Installation log + tool creation result.
+    """
+    packages = []
+
+    if pip_packages:
+        packages += [p.strip() for p in pip_packages.split(",") if p.strip()]
+
+    if apt_packages:
+        packages += [f"apt:{p.strip()}" for p in apt_packages.split(",") if p.strip()]
+
+    if packages:
+        logger.info(f"[tool_builder] Installing deps for {function_name}: {packages}")
+        success, install_log = _install_dependencies(packages)
+        if not success:
+            return (
+                f"⚠️ Some dependencies failed to install:\n{install_log}\n\n"
+                f"Attempting tool creation anyway..."
+            )
+        logger.info(f"[tool_builder] All deps installed for {function_name}")
+    else:
+        install_log = ""
+
+    result = create_tool(function_name, task_description)
+
+    if install_log:
+        return f"📦 <b>Dependencies installed:</b>\n{install_log}\n\n{result}"
+    return result
 
 
 @logged_tool
