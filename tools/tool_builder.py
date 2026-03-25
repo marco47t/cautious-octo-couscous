@@ -201,7 +201,7 @@ def _get_current_user_id() -> int | None:
 
 
 def _request_confirmation(function_name: str, task_description: str, code: str, ops: list[str]) -> str:
-    """Store pending confirmation and return signal string for Telegram handler."""
+    """Store pending confirmation data. Signal is generated in core.py."""
     user_id = _get_current_user_id()
     if not user_id:
         return "❌ Cannot request confirmation: no active user session."
@@ -213,14 +213,8 @@ def _request_confirmation(function_name: str, task_description: str, code: str, 
         "ops": ops,
     }
 
-    ops_list = "\n".join(f"  • {op}" for op in ops)
-    return (
-        f"⚠️ <b>Tool needs elevated permissions</b>\n\n"
-        f"To create <code>{function_name}</code>, I need to use:\n"
-        f"{ops_list}\n\n"
-        f"Do you want to allow this?"
-        f"||CONFIRM_TOOL_CREATION:{user_id}||"
-    )
+    # Just return a neutral string — core.py handles the actual signal
+    return f"Awaiting user confirmation to create {function_name}."
 
 
 @logged_tool

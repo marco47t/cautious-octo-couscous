@@ -4,6 +4,7 @@ from agent.context import set_request_context
 from memory.manager import save_episode
 from memory.fact_extractor import extract_facts
 from tools.file_sender import get_pending_files, clear_pending_files
+from tools.tool_builder import _pending_confirmations
 from utils.logger import logger
 
 
@@ -39,6 +40,20 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
         logger.error(f"[user:{user_id}] AGENT ERROR: {e}")
         yield f"❌ Error: {str(e)}"
         return
+
+    # ── Tool confirmation pending? Bypass Gemini's rewrite ──────────────
+    if user_id in _pending_confirmations:
+        pending = _pending_confirmations[user_id]
+        ops_list = "\n".join(f"  • {op}" for op in pending["ops"])
+        yield (
+            f"⚠️ <b>Tool needs elevated permissions</b>\n\n"
+            f"To create <code>{pending['function_name']}</code>, "
+            f"I need to use:\n{ops_list}\n\n"
+            f"Do you want to allow this?"
+            f"||CONFIRM_TOOL_CREATION:{user_id}||"
+        )
+        return   # skip save_episode and increment_turn
+    # ────────────────────────────────────────────────────────────────────
 
     logger.debug(f"[user:{user_id}] RESPONSE: {text[:500]}")
     logger.debug(f"[user:{user_id}] ── END ──────────────────────────────────")
