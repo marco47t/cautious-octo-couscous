@@ -14,7 +14,7 @@ from utils.logger import logger
 from tools.confirmation_handler import get_confirmation_keyboard, handle_tool_confirmation
 
 CONFIRM_PATTERN = re.compile(r"CONFIRM_ID:([a-f0-9]+)")
-TOOL_CONFIRM_PATTERN = re.compile(r"\|\|CONFIRM_TOOL_CREATION:(\d+)\|\|")
+TOOL_CONFIRM_PATTERN = re.compile(r"\|\|CONFIRMTOOLCREATION:(\d+)\|\|")
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>🤖 Personal AI Agent Online</b>\n\n"
@@ -70,12 +70,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         display_text = TOOL_CONFIRM_PATTERN.sub("", final_text).strip()
         try:
             await placeholder.edit_text(
-                md_to_html(display_text)[:4096],
+                display_text[:4096],
                 parse_mode="HTML",
                 reply_markup=get_confirmation_keyboard(int(user_id_str))
             )
         except BadRequest:
-            await placeholder.edit_text(display_text[:4096],
+            await placeholder.edit_text(
+                display_text[:4096],
                 reply_markup=get_confirmation_keyboard(int(user_id_str)))
 
     elif confirm_match:

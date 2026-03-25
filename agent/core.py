@@ -50,7 +50,7 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
             f"To create <code>{pending['function_name']}</code>, "
             f"I need to use:\n{ops_list}\n\n"
             f"Do you want to allow this?"
-            f"||CONFIRM_TOOL_CREATION:{user_id}||"
+            f"||CONFIRMTOOLCREATION:{user_id}||"
         )
         return   # skip save_episode and increment_turn
     # ────────────────────────────────────────────────────────────────────
