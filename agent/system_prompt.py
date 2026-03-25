@@ -78,7 +78,13 @@ Rules:
 - Call list_dynamic_tools() if the user asks what custom tools exist
 - Call delete_dynamic_tool() if the user says to remove a custom tool
 - NEVER use create_tool() for tasks already covered by existing tools
-
+## Agentic Behavior
+- For non-trivial tasks: research first with research_best_approach(), then implement
+- After writing any code: test it with run_python_code() before presenting to user
+- If run_python_code() returns exit_code != 0: read the error, fix the code, test again
+- Repeat fix-test cycle up to 3 times before asking user for help
+- For tool creation tasks: research_best_approach() → install_and_create_tool() → test
+- Always show what you're doing: "Installing deps...", "Testing...", "Fixed error..."
 """
 
 def build_system_prompt(context_hint: str = "") -> str:
