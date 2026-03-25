@@ -1,5 +1,6 @@
 import os
 import html
+import asyncio
 import tempfile
 from pathlib import Path
 from telegram import Update
@@ -12,6 +13,16 @@ from utils.md_to_html import md_to_html
 from utils.logger import logger
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Unsupported MIME types that Gemini can't process directly
+GEMINI_UNSUPPORTED = {
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+    "application/vnd.ms-powerpoint",           # .ppt
+    "application/vnd.ms-excel",                # .xls
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+    "application/zip",
+    "application/x-zip-compressed",
+}
 
 async def _download(bot, file_id: str, suffix: str) -> str:
     tg_file = await bot.get_file(file_id)
@@ -62,22 +73,45 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     caption = update.message.caption or "Summarize this document."
     suffix = Path(doc.file_name or "file").suffix.lower() or ".bin"
+    mime = doc.mime_type or "application/octet-stream"
     await context.bot.send_chat_action(chat_id, "typing")
     path = None
     try:
         path = await _download(context.bot, doc.file_id, suffix)
-        if suffix in TEXT_EXTENSIONS or (doc.mime_type or "").startswith("text/"):
+        
+        # Check for text files or unsupported file types
+        if suffix in TEXT_EXTENSIONS or mime.startswith("text/"):
             content = Path(path).read_text(encoding="utf-8", errors="replace")[:8000]
             message = f"{caption}\n\nFile: `{doc.file_name}`\n\n```\n{content}\n```"
             await _agent_reply(update, context, user_id, chat_id, message, "⏳ <i>Reading file...</i>")
+        
+        elif mime in GEMINI_UNSUPPORTED:
+            # Pass file path directly to agent — don't upload to Gemini
+            user_message = (
+                f"{caption}\n\n[File saved at: {path}]\n"
+                f"File name: {doc.file_name}\nMIME type: {mime}"
+            ).strip()
+            
+            placeholder = await update.message.reply_text("⏳ <i>Processing document...</i>", parse_mode="HTML")
+            final_text = ""
+            try:
+                async for partial in process_message_stream(user_id, user_message, chat_id):
+                    final_text = partial
+            except Exception as e:
+                await _safe_edit(placeholder, f"❌ Error: {e}")
+                return
+            
+            await _safe_edit(placeholder, final_text or "✅ Done.")
+        
         else:
-            mime = doc.mime_type or "application/octet-stream"
+            # Existing Gemini upload path for PDFs, images, etc.
             uploaded = _client.files.upload(file=path, config={"mime_type": mime})
             response = _client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=[uploaded, caption]
             )
             await update.message.reply_text(md_to_html(response.text or "Could not process.")[:4096], parse_mode="HTML")
+    
     except Exception as e:
         logger.error(f"Document handler error: {e}")
         await update.message.reply_text(f"❌ Could not process document: {e}")
