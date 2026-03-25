@@ -42,6 +42,7 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(md_to_html(get_system_info()), parse_mode="HTML")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import time
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text
@@ -53,40 +54,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     final_text = ""
-    step_lines = []         # accumulate step updates
-    last_edit_time = 0
+    step_lines = []
+    last_edit = [0.0]      # ← use list so inner function can mutate it
 
     async def flush_steps():
-        """Edit placeholder with current accumulated steps."""
-        nonlocal last_edit_time
-        import time
         now = time.monotonic()
-        if now - last_edit_time < 1.0:      # Telegram allows ~1 edit/sec
-            await asyncio.sleep(1.0 - (now - last_edit_time))
+        wait = 1.2 - (now - last_edit[0])
+        if wait > 0:
+            await asyncio.sleep(wait)
         try:
-            status = "\n".join(step_lines[-8:])  # show last 8 steps
+            status = "\n".join(step_lines[-8:])
             await placeholder.edit_text(
                 f"⚙️ <b>Working...</b>\n\n{status}",
                 parse_mode="HTML"
             )
-            last_edit_time = time.monotonic()
+            last_edit[0] = time.monotonic()
+            logger.debug(f"[stream] Flushed {len(step_lines)} steps to Telegram")
         except Exception as e:
             if "not modified" not in str(e).lower():
-                logger.debug(f"Edit skipped: {e}")
+                logger.debug(f"[stream] Edit failed: {e}")
 
     try:
         async for partial in process_message_stream(user_id, text, chat_id):
             final_text = partial
-
-            if partial.startswith("🔧"):
+            if partial.startswith("🔧") or partial.startswith("📋"):
                 step_lines.append(partial)
                 await flush_steps()
-
-            elif partial.startswith("📋"):
-                step_lines.append(partial)
-                await flush_steps()
-
-            # intermediate non-final yields — ignore, keep last as final
     except Exception as e:
         logger.error(f"Handler error: {e}")
         await _safe_edit(placeholder, f"❌ Error: {e}")
