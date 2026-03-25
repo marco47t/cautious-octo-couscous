@@ -1,5 +1,5 @@
 import asyncio
-from agent.memory import get_or_create_session, increment_turn, set_current_user
+from agent.memory import get_or_create_session, increment_turn, set_current_user, update_thinking_level
 from agent.context import set_request_context
 from memory.manager import save_episode
 from memory.fact_extractor import extract_facts
@@ -12,6 +12,7 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
     set_current_user(user_id)                          # ← only addition
     set_request_context(user_id, chat_id)
     session = get_or_create_session(user_id, message)
+    update_thinking_level(user_id, message)             # ← adjust per turn
 
     logger.debug(f"[user:{user_id}] ── NEW MESSAGE ──────────────────────────")
     logger.debug(f"[user:{user_id}] INPUT: {message}")

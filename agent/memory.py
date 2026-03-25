@@ -3,7 +3,8 @@ from google import genai
 from google.genai import types
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from agent.system_prompt import build_system_prompt
-
+from agent.thinking_classifier import get_thinking_level   # ← add
+from utils.logger import logger                            # ← add
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MAX_SESSION_TURNS = 10
@@ -13,7 +14,7 @@ _sessions: Dict[int, object] = {}
 _turn_counts: Dict[int, int] = {}
 
 
-def set_current_user(user_id: int):       # ← only addition
+def set_current_user(user_id: int):
     global _current_user_id
     _current_user_id = user_id
 
@@ -33,17 +34,40 @@ def _detect_context(message: str) -> str:
 
 def get_or_create_session(user_id: int, message: str = ""):
     from tools.registry import get_tools
+
     if user_id not in _sessions:
         context = _detect_context(message)
+        thinking_level = get_thinking_level(message)    # ← classify
+
+        logger.info(f"[memory] New session user={user_id} context={context or 'general'} thinking={thinking_level}")
+
         _sessions[user_id] = client.chats.create(
             model=GEMINI_MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=build_system_prompt(context),
                 tools=get_tools(),
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=thinking_level          # ← inject
+                ),
             )
         )
         _turn_counts[user_id] = 0
+
     return _sessions[user_id]
+
+
+def update_thinking_level(user_id: int, message: str):
+    """Adjust thinking level on existing session based on new message."""
+    if user_id not in _sessions:
+        return
+    level = get_thinking_level(message)
+    try:
+        _sessions[user_id]._config.thinking_config = types.ThinkingConfig(
+            thinking_level=level
+        )
+        logger.debug(f"[memory] Updated thinking={level} for user={user_id}")
+    except Exception as e:
+        logger.debug(f"[memory] Could not update thinking level: {e}")
 
 
 def increment_turn(user_id: int):
