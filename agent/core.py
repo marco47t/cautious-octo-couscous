@@ -1,12 +1,14 @@
 import asyncio
-from agent.memory import get_or_create_session, increment_turn
+from agent.memory import get_or_create_session, increment_turn, set_current_user
 from agent.context import set_request_context
 from memory.manager import save_episode
 from memory.fact_extractor import extract_facts
 from tools.file_sender import get_pending_files, clear_pending_files
 from utils.logger import logger
 
+
 async def process_message_stream(user_id: int, message: str, chat_id: int):
+    set_current_user(user_id)                          # ← only addition
     set_request_context(user_id, chat_id)
     session = get_or_create_session(user_id, message)
 
@@ -47,6 +49,7 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
         increment_turn(user_id)
         await asyncio.to_thread(save_episode, user_id, message, text)
         await asyncio.to_thread(extract_facts, str(user_id), message, text)
+
 
 def pop_pending_files(chat_id: int) -> list[str]:
     files = get_pending_files(chat_id)

@@ -11,9 +11,10 @@ from bot.confirmation import execute_action, cancel_action, cleanup_pending
 from tools.system_tool import get_system_info
 from utils.md_to_html import md_to_html
 from utils.logger import logger
+from tools.confirmation_handler import get_confirmation_keyboard, handle_tool_confirmation
 
 CONFIRM_PATTERN = re.compile(r"CONFIRM_ID:([a-f0-9]+)")
-
+TOOL_CONFIRM_PATTERN = re.compile(r"\|\|CONFIRM_TOOL_CREATION:(\d+)\|\|")
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>🤖 Personal AI Agent Online</b>\n\n"
@@ -61,9 +62,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Check if response contains a confirmation request
-    match = CONFIRM_PATTERN.search(final_text)
-    if match:
-        action_id = match.group(1)
+    tool_match = TOOL_CONFIRM_PATTERN.search(final_text)
+    confirm_match = CONFIRM_PATTERN.search(final_text)
+
+    if tool_match:
+        user_id_str = tool_match.group(1)
+        display_text = TOOL_CONFIRM_PATTERN.sub("", final_text).strip()
+        try:
+            await placeholder.edit_text(
+                md_to_html(display_text)[:4096],
+                parse_mode="HTML",
+                reply_markup=get_confirmation_keyboard(int(user_id_str))
+            )
+        except BadRequest:
+            await placeholder.edit_text(display_text[:4096],
+                reply_markup=get_confirmation_keyboard(int(user_id_str)))
+
+    elif confirm_match:
+        action_id = confirm_match.group(1)
         display_text = CONFIRM_PATTERN.sub("", final_text).strip()
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes, proceed", callback_data=f"confirm:{action_id}"),
@@ -77,6 +93,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except BadRequest:
             await placeholder.edit_text(display_text[:4096], reply_markup=keyboard)
+
     else:
         await _safe_edit(placeholder, final_text or "✅ Done.")
 
@@ -98,7 +115,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
-    if data.startswith("confirm:"):
+    if data.startswith("tool_confirm:"):
+        await handle_tool_confirmation(update, context)
+
+    elif data.startswith("confirm:"):
         action_id = data.split(":", 1)[1]
         result = execute_action(action_id)
         await query.edit_message_text(md_to_html(result)[:4096], parse_mode="HTML")
