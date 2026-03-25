@@ -8,7 +8,8 @@ from telegram.ext import ContextTypes
 from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from agent.core import process_message_stream, pop_pending_files
-from bot.handlers import _safe_edit
+from bot.handlers import _safe_edit, TOOL_CONFIRM_PATTERN
+from tools.confirmation_handler import get_confirmation_keyboard
 from utils.md_to_html import md_to_html
 from utils.logger import logger
 
@@ -51,7 +52,24 @@ async def _agent_reply(update, context, user_id, chat_id, message, status="⏳ <
     final_text = ""
     async for partial in process_message_stream(user_id, message, chat_id):
         final_text = partial
-    await _safe_edit(placeholder, final_text or "✅ Done.")
+
+    # Same pattern check as handle_message to avoid double HTML escaping
+    tool_match = TOOL_CONFIRM_PATTERN.search(final_text)
+    if tool_match:
+        user_id_str = tool_match.group(1)
+        display_text = TOOL_CONFIRM_PATTERN.sub("", final_text).strip()
+        try:
+            await placeholder.edit_text(
+                display_text[:4096],
+                parse_mode="HTML",
+                reply_markup=get_confirmation_keyboard(int(user_id_str))
+            )
+        except Exception:
+            await placeholder.edit_text(display_text[:4096],
+                reply_markup=get_confirmation_keyboard(int(user_id_str)))
+    else:
+        await _safe_edit(placeholder, final_text or "✅ Done.")
+
     for fp in pop_pending_files(chat_id):
         p = Path(fp)
         try:
@@ -111,15 +129,25 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                "⏳ <i>Reading file...</i>")
 
         elif is_unsupported:
-            # Pass stable path to agent — DO NOT delete in finally
-            user_message = (
-                f"{caption}\n\n"
-                f"File saved at: {path}\n"
-                f"Original name: {doc.file_name}\n"
-                f"MIME type: {mime}"
-            ).strip()
-            await _agent_reply(update, context, user_id, chat_id, user_message,
-                               "⏳ <i>Processing document...</i>")
+            if not caption:
+                # No instruction given — just report the path, don't invoke agent
+                await update.message.reply_text(
+                    f"📎 <b>File saved</b>\n\n"
+                    f"Path: <code>{path}</code>\n"
+                    f"Name: {doc.file_name}\n\n"
+                    f"What would you like me to do with it?",
+                    parse_mode="HTML"
+                )
+            else:
+                # User gave explicit instruction — pass to agent with path
+                user_message = (
+                    f"{caption}\n\n"
+                    f"File saved at: {path}\n"
+                    f"Original name: {doc.file_name}\n"
+                    f"MIME type: {mime}"
+                ).strip()
+                await _agent_reply(update, context, user_id, chat_id, user_message,
+                                   "⏳ <i>Processing document...</i>")
 
         else:
             uploaded = _client.files.upload(file=path, config={"mime_type": mime})
