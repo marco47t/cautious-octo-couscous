@@ -53,15 +53,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     final_text = ""
+    step_lines = []         # accumulate step updates
+    last_edit_time = 0
+
+    async def flush_steps():
+        """Edit placeholder with current accumulated steps."""
+        nonlocal last_edit_time
+        import time
+        now = time.monotonic()
+        if now - last_edit_time < 1.0:      # Telegram allows ~1 edit/sec
+            await asyncio.sleep(1.0 - (now - last_edit_time))
+        try:
+            status = "\n".join(step_lines[-8:])  # show last 8 steps
+            await placeholder.edit_text(
+                f"⚙️ <b>Working...</b>\n\n{status}",
+                parse_mode="HTML"
+            )
+            last_edit_time = time.monotonic()
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.debug(f"Edit skipped: {e}")
+
     try:
         async for partial in process_message_stream(user_id, text, chat_id):
             final_text = partial
+
+            if partial.startswith("🔧"):
+                step_lines.append(partial)
+                await flush_steps()
+
+            elif partial.startswith("📋"):
+                step_lines.append(partial)
+                await flush_steps()
+
+            # intermediate non-final yields — ignore, keep last as final
     except Exception as e:
         logger.error(f"Handler error: {e}")
         await _safe_edit(placeholder, f"❌ Error: {e}")
         return
 
-    # Check if response contains a confirmation request
+    # ── Render final result ─────────────────────────────────────────────
     tool_match = TOOL_CONFIRM_PATTERN.search(final_text)
     confirm_match = CONFIRM_PATTERN.search(final_text)
 
@@ -77,14 +108,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except BadRequest:
             await placeholder.edit_text(
                 display_text[:4096],
-                reply_markup=get_confirmation_keyboard(int(user_id_str)))
+                reply_markup=get_confirmation_keyboard(int(user_id_str))
+            )
 
     elif confirm_match:
         action_id = confirm_match.group(1)
         display_text = CONFIRM_PATTERN.sub("", final_text).strip()
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes, proceed", callback_data=f"confirm:{action_id}"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}"),
+            InlineKeyboardButton("❌ Cancel",        callback_data=f"cancel:{action_id}"),
         ]])
         try:
             await placeholder.edit_text(
@@ -98,7 +130,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await _safe_edit(placeholder, final_text or "✅ Done.")
 
-    # Send queued files
+    # ── Send queued files ───────────────────────────────────────────────
     for file_path in pop_pending_files(chat_id):
         path = Path(file_path)
         try:
