@@ -6,9 +6,9 @@ from agent.thinking_classifier import get_thinking_level
 from memory.manager import save_episode
 from memory.fact_extractor import extract_facts
 from tools.file_sender import get_pending_files, clear_pending_files
+from tools.tool_builder import _pending_confirmations    # ← add this import
 from utils.logger import logger
 
-# Tasks that warrant the full agentic loop
 AGENTIC_TRIGGERS = [
     "create", "build", "write", "code", "implement", "develop",
     "fix", "debug", "refactor", "test",
@@ -17,11 +17,20 @@ AGENTIC_TRIGGERS = [
     "automate", "script",
 ]
 
-
 def _needs_agentic_loop(message: str) -> bool:
     m = message.lower()
     return any(t in m for t in AGENTIC_TRIGGERS)
 
+def _build_confirmation_signal(user_id: int) -> str:
+    pending = _pending_confirmations[user_id]
+    ops_list = "\n".join(f"  • {op}" for op in pending["ops"])
+    return (
+        f"⚠️ <b>Tool needs elevated permissions</b>\n\n"
+        f"To create <code>{pending['function_name']}</code>, "
+        f"I need to use:\n{ops_list}\n\n"
+        f"Do you want to allow this?"
+        f"||CONFIRMTOOLCREATION:{user_id}||"
+    )
 
 async def process_message_stream(user_id: int, message: str, chat_id: int):
     set_current_user(user_id)
@@ -37,11 +46,17 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
 
     try:
         if use_loop:
-            # Stream step-by-step updates
             final_text = ""
             async for chunk in run_agentic_loop(session, message, user_id):
                 final_text = chunk
-                yield chunk           # live updates to Telegram
+                yield chunk
+
+            # ── Check after agentic loop ──────────────────────────
+            if user_id in _pending_confirmations:
+                yield _build_confirmation_signal(user_id)
+                return
+            # ─────────────────────────────────────────────────────
+
         else:
             response = await asyncio.to_thread(session.send_message, message)
             try:
@@ -55,6 +70,12 @@ async def process_message_stream(user_id: int, message: str, chat_id: int):
                             logger.debug(f"[user:{user_id}] TOOL RESULT ← {fr.name}: {str(fr.response)[:300]}")
             except Exception:
                 pass
+
+            # ── Check after single shot ───────────────────────────
+            if user_id in _pending_confirmations:
+                yield _build_confirmation_signal(user_id)
+                return
+            # ─────────────────────────────────────────────────────
 
             try:
                 final_text = response.text or "✅ Done."
